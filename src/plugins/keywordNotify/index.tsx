@@ -7,7 +7,7 @@
 import "./style.css";
 
 import definePlugin, { OptionType } from "@utils/types";
-import { Button, ChannelStore, Forms, Select, Switch, SelectedChannelStore, TabBar, TextInput, Tooltip, UserStore, useState } from "@webpack/common";
+import { Button, ChannelStore, FluxDispatcher, Forms, Select, Switch, SelectedChannelStore, TabBar, TextInput, Tooltip, UserStore, useState } from "@webpack/common";
 import { classes } from "@utils/misc";
 import { classNameFactory } from "@api/Styles";
 import { DataStore } from "@api/index";
@@ -27,12 +27,14 @@ type KeywordEntry = { regex: string, listIds: Array<string>, listType: ListType,
 let keywordEntries: Array<KeywordEntry> = [];
 let currentUser: User;
 let keywordLog: Array<any> = [];
+let interceptor: (e: any) => void;
+
 
 const recentMentionsPopoutClass = findByPropsLazy("recentMentionsPopout");
-const tabClass = findByPropsLazy("tab");
+const tabClass = findByPropsLazy("inboxTitle", "tab");
 const buttonClass = findByPropsLazy("size36");
 
-const MenuHeader = findByCodeLazy(".getMessageReminders()).length");
+const MenuHeader = findByCodeLazy(".getUnseenInviteCount())");
 const Popout = findByCodeLazy(".Messages.UNBLOCK_TO_JUMP_TITLE", "canCloseAllMessages:");
 const createMessageRecord = findByCodeLazy(".createFromServer(", ".isBlockedForMessage", "messageReference:");
 const KEYWORD_ENTRIES_KEY = "KeywordNotify_keywordEntries";
@@ -78,7 +80,7 @@ function highlightKeywords(str: string, entries: Array<KeywordEntry>) {
     }
 
     const matches = regexes.map(r => str.match(r)).flat().filter(e => e != null) as Array<string>;
-    if (matches.length == 0) {
+    if (matches.length === 0) {
         return [str];
     }
 
@@ -276,6 +278,8 @@ function DoubleCheckmarkIcon(props: IconProps) {
             {...props}
             className={classes(props.className, "vc-double-checkmark-icon")}
             viewBox="0 0 24 24"
+            width={16}
+            height={16}
         >
             <path fill="currentColor"
                 d="M16.7 8.7a1 1 0 0 0-1.4-1.4l-3.26 3.24a1 1 0 0 0 1.42 1.42L16.7 8.7ZM3.7 11.3a1 1 0 0 0-1.4 1.4l4.5 4.5a1 1 0 0 0 1.4-1.4l-4.5-4.5Z"
@@ -311,13 +315,6 @@ export default definePlugin({
     description: "Sends a notification if a given message matches certain keywords or regexes",
     settings,
     patches: [
-        {
-            find: "Dispatch.dispatch(...) called without an action type",
-            replacement: {
-                match: /}_dispatch\((\i),\i\){/,
-                replace: "$&$1=$self.modify($1);"
-            }
-        },
         {
             find: "Messages.UNREADS_TAB_LABEL}",
             replacement: {
@@ -356,12 +353,23 @@ export default definePlugin({
         (await DataStore.get(KEYWORD_LOG_KEY) ?? []).map(e => JSON.parse(e)).forEach(e => {
             this.addToLog(e);
         });
+
+        interceptor = (e: any) => {
+            return this.modify(e);
+        };
+        FluxDispatcher.addInterceptor(interceptor);
+    },
+    stop() {
+        const index = FluxDispatcher._interceptors.indexOf(interceptor);
+        if (index > -1) {
+            FluxDispatcher._interceptors.splice(index, 1);
+        }
     },
 
     applyKeywordEntries(m: Message) {
         let matches = false;
 
-        for (let entry of keywordEntries) {
+        for (const entry of keywordEntries) {
             if (entry.regex === "") {
                 continue;
             }
@@ -453,20 +461,16 @@ export default definePlugin({
             <MenuHeader tab={8} setTab={setTab} closePopout={closePopout} badgeState={{ badgeForYou: false }} children={
                 <Tooltip text="Clear All">
                     {({ onMouseLeave, onMouseEnter }) => (
-                        <Button
+                        <div className={classes(tabClass.controlButton, buttonClass.button, buttonClass.tertiary, buttonClass.size32)}
                             onMouseLeave={onMouseLeave}
                             onMouseEnter={onMouseEnter}
-                            look={Button.Looks.BLANK}
-                            size={Button.Sizes.ICON}
                             onClick={() => {
                                 keywordLog = [];
                                 DataStore.set(KEYWORD_LOG_KEY, []);
                                 this.onUpdate();
                             }}>
-                            <div className={classes(buttonClass.button, buttonClass.secondary, buttonClass.size32)}>
-                                <DoubleCheckmarkIcon />
-                            </div>
-                        </Button>
+                            <DoubleCheckmarkIcon />
+                        </div>
                     )}
                 </Tooltip>
             } />
@@ -523,6 +527,5 @@ export default definePlugin({
                 this.applyKeywordEntries(e.messages[msg]);
             }
         }
-        return e;
     }
 });
